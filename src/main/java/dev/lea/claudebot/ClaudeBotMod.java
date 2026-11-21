@@ -152,18 +152,20 @@ public class ClaudeBotMod implements ModInitializer {
 				try (Reader r = Files.newBufferedReader(p)) { props.load(r); }
 			}
 			boolean changed = false;
-			for (String[] kv : new String[][]{{"port", "25599"}, {"name", "Claude"}, {"max_bots", "4"}, {"require_token", "false"}}) {
+			for (String[] kv : new String[][]{{"port", "25599"}, {"name", "Claude"}, {"max_bots", "4"}, {"require_token", "false"}, {"fair_sight", "true"}, {"reflexes", "true"}}) {
 				if (!props.containsKey(kv[0])) { props.setProperty(kv[0], kv[1]); changed = true; }
 			}
 			if (changed) {
 				try (Writer w = Files.newBufferedWriter(p)) {
-					props.store(w, "ClaudeBot – port: lokale Schnittstelle; name: Standard-Bot (3–16 Zeichen, A-Z a-z 0-9 _); max_bots: Bots gleichzeitig; require_token: Header X-Bot-Token verlangen");
+					props.store(w, "ClaudeBot – port: lokale Schnittstelle; name: Standard-Bot (3–16 Zeichen, A-Z a-z 0-9 _); max_bots: Bots gleichzeitig; require_token: Header X-Bot-Token verlangen; fair_sight: Bots sehen nur, was in Sichtlinie liegt; reflexes: Bots wehren sich gegen Monster und essen von selbst");
 				}
 			}
 			port = Integer.parseInt(props.getProperty("port").trim());
 			String n = props.getProperty("name").trim();
 			if (BotRegistry.validName(n)) BotRegistry.defaultName = n;
 			BotRegistry.maxBots = Math.max(1, Integer.parseInt(props.getProperty("max_bots").trim()));
+			BotRegistry.reflexes = Boolean.parseBoolean(props.getProperty("reflexes").trim());
+			BotRegistry.fairSight = Boolean.parseBoolean(props.getProperty("fair_sight").trim());
 			BotRegistry.requireToken = Boolean.parseBoolean(props.getProperty("require_token").trim());
 		} catch (Exception e) {
 			BotController.LOG.warn("ClaudeBot: Konfiguration nicht lesbar, nehme Standardwerte", e);

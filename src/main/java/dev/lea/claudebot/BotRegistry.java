@@ -27,6 +27,10 @@ public final class BotRegistry {
 	static int maxBots = 4;
 	static String defaultName = "Claude";
 	static boolean requireToken = false;
+	/** true: Bots sehen nur, was in Sichtlinie liegt (kein Blick durch Wände). */
+	static boolean fairSight = true;
+	/** true: Bots wehren sich sofort gegen Monster und essen im Leerlauf von selbst. */
+	static boolean reflexes = true;
 
 	private BotRegistry() {}
 

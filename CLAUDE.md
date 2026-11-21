@@ -9,7 +9,8 @@ Sprache: Antworte Lea auf Deutsch, kurz, ohne Wiederholungen.
 - Noch nicht mit echtem Client getestet. Offen: Wahrscheinlichste Laufzeit-Risiken: Bot-Spawn (`FakeConnection`, `PlayerManager.onPlayerConnect`), Bewegung (Position wird pro Tick gesetzt, Physik läuft parallel), Respawn nach Tod.
 - Mehrere Bots gleichzeitig (headless getestet: 3 Bots, Chat, Flüstern per `/msg`, Schilder). Gehirn: je Bot ein Claude-Code-Prozess über Les Abo (`play/bot`, nur mit Platzhalter getestet).
 - Entscheidungen von Le: nur Claude-Modelle über das Abo, Kontext 128k mit Auto-Compact, Koordinaten sichtbar, Kampf gegen Spieler erlaubt, Namen frei.
-- Nächstes: echtes Sichtfeld (`docs/KONZEPT.md`), Motorik über Eingaben, Reflexe, Bildmodus.
+- Echtes Sichtfeld (`fair_sight=true`): `see`, `nearby`, `state` und die Suche von `mine <block>` nutzen nur Sichtlinie. `map`/`top` schauen noch durch Wände. Reflexe (`reflexes=true`): Gegenwehr gegen Monster, Essen im Leerlauf.
+- Nächstes: Motorik über Eingaben (erst nach Client-Test), JSON-Frames, Bildmodus, `map`/`top` fair machen.
 
 ## Befehle
 - Bauen: `./gradlew build` → `build/libs/claudebot-0.1.0.jar`
@@ -27,6 +28,7 @@ Sprache: Antworte Lea auf Deutsch, kurz, ohne Wiederholungen.
 | `FakeConnection` | Verbindung, die alle Pakete verwirft (keine Mixins nötig) |
 | `BotController` | Befehlsparser, Aufgaben (`GotoTask`, `MineTask`, `ReachTask`, `AttackTask` …), `Navigator`, Crafting, Behälter |
 | `Pathfinder` | A* auf Blockebene |
+| `Vision` | Echtes Sichtfeld: Strahlenraster 64×36, Sichtlinie für Wesen, Hören, Gedächtnis gesehener Blöcke (`see`, `see around`) |
 | `Describe` | Welt → Text (`state`, `scan`, `map`, `top`) |
 | `EventLog` | Ereignisse für Claude (Chat, Schaden, Aufgaben) |
 | `HttpApi` | `GET /bots`, `POST /bots/{name}/cmd`, `GET /bots/{name}/events`; `/cmd` und `/events` für den Standard-Bot |

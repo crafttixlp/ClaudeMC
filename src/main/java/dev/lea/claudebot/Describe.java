@@ -80,7 +80,7 @@ public final class Describe {
 		sb.append("Aufgabe: ").append(c.taskStatus()).append('\n');
 		String theme = BotRegistry.theme(c.botName);
 		if (!theme.isEmpty()) sb.append("Dein Thema: ").append(theme).append('\n');
-		sb.append(nearby(b, 16, 25));
+		sb.append(BotRegistry.fairSight ? c.vision.entities(true, 24, 25) : nearby(b, 16, 25));
 		sb.append(inventory(b));
 		return sb.toString();
 	}

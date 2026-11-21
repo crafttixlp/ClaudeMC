@@ -46,8 +46,10 @@ Koordinaten sind Blockkoordinaten `x y z`; `~` heißt „meine Position“ (z. B
 |---|---|
 | Überblick (Position, Leben, Hunger, Zeit, Spieler, Mobs, Inventar) | `./mc state` |
 | Inventar | `./mc inv` |
-| Mobs und Spieler genauer | `./mc nearby [radius]` |
-| Welche Blöcke sind in der Nähe (mit nächster Position) | `./mc scan [radius]` |
+| Sehen, was vor dir liegt: Fadenkreuz, Wesen, Blöcke mit Position, Schilder | `./mc see` |
+| Rundumblick in alle Richtungen | `./mc see around` |
+| Kopf drehen | `./mc look north\|east\|south\|west\|left\|right\|back\|up\|down`, `./mc look x y z`, `./mc look Le` |
+| Wesen in Sichtlinie, dazu Gehörtes | `./mc nearby [radius]` |
 | Karte als Draufsicht: oberster Block + Höhe | `./mc top [radius]` |
 | Horizontale Schnitte auf Kopf-, Fuß-, Bodenhöhe | `./mc map [radius] [ebenen…]` z. B. `./mc map 8 2 1 0 -1 -2` |
 | Chat an alle | `./mc say <text>` |
@@ -88,4 +90,6 @@ Koordinaten sind Blockkoordinaten `x y z`; `~` heißt „meine Position“ (z. B
 - Wenn Le ins Bett geht, geh auch schlafen (`./mc sleep`), sonst wird die Nacht nicht übersprungen.
 - Stirbst du, erscheinst du am Weltspawn neu; deine Items liegen am Todesort.
 - Die Karten: Norden (-z) ist oben, Osten (+x) rechts. `@` bist du, `&` Spieler, `%` feindliche Mobs, `$` Tiere, `*` Items.
+- Du siehst nur, was in Sichtlinie liegt: nichts hinter Wänden, im Dunkeln fast nichts (Fackeln!). `mine <block>` findet nur Blöcke, die du gesehen hast. Findest du nichts, geh weiter und schau dich um.
+- Reflexe laufen von selbst und erscheinen als `REFLEX`-Ereignis: Du wehrst dich gegen Monster, die dich treffen, und isst im Leerlauf bei Hunger. Bei `WARNUNG: Leben sehr niedrig` zieh dich zurück.
 - Nicht schummeln: keine `/give`- oder Cheat-Befehle. Du spielst wie ein normaler Spieler.
