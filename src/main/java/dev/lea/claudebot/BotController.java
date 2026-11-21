@@ -59,11 +59,6 @@ import static dev.lea.claudebot.Describe.pos;
 /** Steuert den Bot: Befehle, laufende Aufgaben, Ereignisse. Läuft im Server-Thread. */
 public class BotController {
 	static final Logger LOG = LoggerFactory.getLogger("claudebot");
-	private static volatile BotController INSTANCE;
-
-	public static BotController get() { return INSTANCE; }
-	static void clear() { INSTANCE = null; }
-
 	public final MinecraftServer server;
 	public final EventLog events = new EventLog();
 	public final String botName;
@@ -77,7 +72,6 @@ public class BotController {
 	public BotController(MinecraftServer server, String botName) {
 		this.server = server;
 		this.botName = botName;
-		INSTANCE = this;
 	}
 
 	public boolean online() { return bot != null && !bot.isRemoved(); }
@@ -88,6 +82,7 @@ public class BotController {
 	public String spawn(ServerWorld w, Vec3d p, float yaw) {
 		if (online()) return botName + " ist schon im Spiel bei " + pos(bot.getBlockPos());
 		if (server.getPlayerManager().getPlayer(botName) != null) return "Ein Spieler namens " + botName + " ist schon online.";
+		if (BotRegistry.onlineCount() >= BotRegistry.maxBots) return "Es sind schon " + BotRegistry.maxBots + " Bots im Spiel (max_bots in config/claudebot.properties).";
 		GameProfile profile = new GameProfile(Uuids.getOfflinePlayerUuid(botName), botName);
 		BotPlayer b = new BotPlayer(server, w, profile);
 		server.getPlayerManager().onPlayerConnect(new FakeConnection(), b, ConnectedClientData.createDefault(profile, false));

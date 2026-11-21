@@ -47,7 +47,7 @@ public class BotPlayer extends ServerPlayerEntity {
 		this.hungerManager = new HungerManager();
 		this.extinguish();
 		this.clearStatusEffects();
-		BotController c = BotController.get();
+		BotController c = BotRegistry.of(this);
 		if (c != null) c.onBotDied(this, msg);
 	}
 }
