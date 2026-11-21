@@ -78,6 +78,8 @@ public final class Describe {
 		if (b.isOnFire()) sb.append(", BRENNT");
 		sb.append('\n');
 		sb.append("Aufgabe: ").append(c.taskStatus()).append('\n');
+		String theme = BotRegistry.theme(c.botName);
+		if (!theme.isEmpty()) sb.append("Dein Thema: ").append(theme).append('\n');
 		sb.append(nearby(b, 16, 25));
 		sb.append(inventory(b));
 		return sb.toString();

@@ -88,6 +88,11 @@ public class ClaudeBotMod implements ModInitializer {
 								.executes(ctx -> each(ctx, null, ClaudeBotMod::stopTask))
 								.then(CommandManager.argument("name", StringArgumentType.word()).suggests(names)
 										.executes(ctx -> each(ctx, StringArgumentType.getString(ctx, "name"), ClaudeBotMod::stopTask))))
+						.then(CommandManager.literal("theme")
+								.then(CommandManager.argument("name", StringArgumentType.word()).suggests(names)
+										.executes(ctx -> theme(ctx, StringArgumentType.getString(ctx, "name"), null))
+										.then(CommandManager.argument("text", StringArgumentType.greedyString())
+												.executes(ctx -> theme(ctx, StringArgumentType.getString(ctx, "name"), StringArgumentType.getString(ctx, "text"))))))
 						.then(CommandManager.literal("list").executes(ctx -> reply(ctx.getSource(), BotRegistry.list())))
 						.then(CommandManager.literal("status").executes(ctx -> reply(ctx.getSource(), BotRegistry.list())))
 		));
@@ -96,6 +101,20 @@ public class ClaudeBotMod implements ModInitializer {
 	private static String stopTask(BotController c) {
 		c.cancelTask("abgebrochen (/claude stop)");
 		return c.botName + " stoppt.";
+	}
+
+	/** Ohne Text: Thema anzeigen. Text "-" löscht es. "all" gilt für alle Bots. */
+	private static int theme(CommandContext<ServerCommandSource> ctx, String name, String text) {
+		return each(ctx, name, c -> {
+			if (text == null) {
+				String th = BotRegistry.theme(c.botName);
+				return c.botName + ": " + (th.isEmpty() ? "kein Thema" : th);
+			}
+			boolean clear = text.trim().equals("-");
+			BotRegistry.setTheme(c.botName, clear ? "" : text);
+			c.events.add(clear ? "THEMA gelöscht: Spiel frei nach eigenen Zielen." : "NEUES THEMA von " + ctx.getSource().getName() + ": " + text.trim());
+			return c.botName + ": Thema " + (clear ? "gelöscht" : "gesetzt");
+		});
 	}
 
 	private static int spawn(CommandContext<ServerCommandSource> ctx, String name) {

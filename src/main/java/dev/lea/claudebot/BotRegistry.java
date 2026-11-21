@@ -20,7 +20,8 @@ import java.util.Properties;
 public final class BotRegistry {
 	private static final Map<String, BotController> BOTS = new LinkedHashMap<>();
 	private static final Properties TOKENS = new Properties();
-	private static Path tokenFile;
+	private static final Properties THEMES = new Properties();
+	private static Path tokenFile, themeFile;
 
 	static volatile MinecraftServer server;
 	static int maxBots = 4;
@@ -32,6 +33,13 @@ public final class BotRegistry {
 	static synchronized void start(MinecraftServer s, Path configDir) {
 		server = s;
 		tokenFile = configDir.resolve("claudebot-tokens.properties");
+		themeFile = configDir.resolve("claudebot-themes.properties");
+		THEMES.clear();
+		if (Files.exists(themeFile)) {
+			try (Reader r = Files.newBufferedReader(themeFile)) { THEMES.load(r); } catch (Exception e) {
+				BotController.LOG.warn("ClaudeBot: Themen-Datei nicht lesbar", e);
+			}
+		}
 		TOKENS.clear();
 		if (Files.exists(tokenFile)) {
 			try (Reader r = Files.newBufferedReader(tokenFile)) { TOKENS.load(r); } catch (Exception e) {
@@ -115,6 +123,23 @@ public final class BotRegistry {
 		return t != null && t.equals(given);
 	}
 
+	/** Thema des Bots (leer = freies Spiel). Bleibt über Neustarts erhalten. */
+	public static synchronized String theme(String name) {
+		return THEMES.getProperty(key(name), "");
+	}
+
+	public static synchronized void setTheme(String name, String theme) {
+		if (theme == null || theme.isBlank()) THEMES.remove(key(name));
+		else THEMES.setProperty(key(name), theme.trim());
+		if (themeFile != null) {
+			try (Writer w = Files.newBufferedWriter(themeFile)) {
+				THEMES.store(w, "ClaudeBot – Thema je Bot (/claude theme <name|all> <text>)");
+			} catch (Exception e) {
+				BotController.LOG.warn("ClaudeBot: Themen-Datei nicht schreibbar", e);
+			}
+		}
+	}
+
 	/** Eine Zeile je Bot, für /claude list und GET /bots. */
 	public static String list() {
 		List<BotController> l = all();
@@ -124,6 +149,8 @@ public final class BotRegistry {
 			sb.append(c.botName).append(": ");
 			if (c.online()) sb.append("bei ").append(Describe.pos(c.bot.getBlockPos())).append(", Aufgabe: ").append(c.taskStatus());
 			else sb.append("nicht im Spiel");
+			String th = theme(c.botName);
+			if (!th.isEmpty()) sb.append(", Thema: ").append(th);
 			sb.append('\n');
 		}
 		return sb.toString().trim();

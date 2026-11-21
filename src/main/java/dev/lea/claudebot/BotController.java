@@ -193,6 +193,11 @@ public class BotController {
 			switch (v) {
 				case "help", "hilfe": return help();
 				case "spawn": return cmdSpawn(a);
+				case "theme", "thema": {
+					String th = BotRegistry.theme(botName);
+					return th.isEmpty() ? "Kein Thema gesetzt – spiel frei nach eigenen Zielen." : "Dein Thema: " + th;
+				}
+				case "bots": return BotRegistry.list();
 				case "despawn": return despawn();
 			}
 			if (!online()) return botName + " ist nicht im Spiel. Erst 'spawn' (oder im Spiel /claude spawn).";
@@ -390,7 +395,7 @@ public class BotController {
 				  Kisten/Ofen: container <x y z> | take <x y z> [item|all] [anzahl]
 				           put <x y z> <item> [anzahl] | fuel <x y z> <item> [anzahl]
 				  Kampf:   attack <#id | mobtyp | hostile> [anzahl]
-				  Sonst:   spawn [x y z] | despawn
+				  Sonst:   spawn [x y z] | despawn | theme (dein Thema) | bots (alle Bots)
 				Items/Blöcke als Minecraft-ID ohne 'minecraft:', z.B. oak_log, cobblestone, iron_pickaxe.
 				""";
 	}
