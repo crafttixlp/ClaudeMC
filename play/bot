@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""bot – startet Claude-Modelle als eigenständige Minecraft-Spieler (über Claude Code mit deinem Abo).
+
+  bot start <Name> [--model sonnet] [--thema "…"] [--charakter "…"] [--hintergrund]
+  bot stop <Name|all>      Bot nach dem laufenden Zug anhalten
+  bot list                 Bots mit Modell und Zustand
+
+Jeder Bot ist ein eigener Claude-Code-Prozess mit eigenem Gespräch, eigenem Ordner bots/<Name>/
+(Persona, Notizen, Ziele) und eigener Spielfigur. Modelle: haiku, sonnet, opus, fable oder eine volle Modell-ID.
+Voraussetzung: `claude` ist installiert und mit dem Abo angemeldet (`claude` einmal starten, /login).
+Umgebungsvariablen: CLAUDE_BIN (Standard "claude"), CLAUDEBOT_PORT, CLAUDEBOT_CONTEXT (Standard 128000).
+"""
+import argparse
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+BOTS = os.path.join(HERE, "bots")
+CLAUDE = os.environ.get("CLAUDE_BIN", "claude")
+CONTEXT = os.environ.get("CLAUDEBOT_CONTEXT", "128000")
+NAME_RE = re.compile(r"^[A-Za-z0-9_]{3,16}$")
+
+START_PROMPT = (
+    "Du bist jetzt im Spiel. Lies deine Dateien in bots/{name}/ (persona.md, notizen.md, ziele.md), "
+    "dann `./mc state` (bei Bedarf `./mc spawn`). Begrüße die anderen kurz und beginne die Spielschleife aus CLAUDE.md."
+)
+NEXT_PROMPT = (
+    "Weiter spielen. Hol neue Ereignisse mit `./mc wait 30`, reagiere darauf und arbeite an deinen Zielen in "
+    "bots/{name}/ziele.md weiter. Halte notizen.md aktuell."
+)
+
+
+def folder(name):
+    return os.path.join(BOTS, name)
+
+
+def read(path, default=""):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return default
+
+
+def write(path, text):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def load_state(name):
+    try:
+        return json.loads(read(os.path.join(folder(name), "session.json"), "{}"))
+    except ValueError:
+        return {}
+
+
+def save_state(name, state):
+    write(os.path.join(folder(name), "session.json"), json.dumps(state, indent=1))
+
+
+def setup(name, model, thema, charakter):
+    d = folder(name)
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, "persona.md")
+    if not os.path.exists(p) or thema or charakter:
+        old = read(p)
+        if not thema:
+            m = re.search(r"^Thema: (.*)$", old, re.M)
+            thema = m.group(1) if m else ""
+        if not charakter:
+            m = re.search(r"^Charakter: (.*)$", old, re.M)
+            charakter = m.group(1) if m else "freundlich, neugierig, packt an"
+        write(p, f"# {name}\n\nCharakter: {charakter}\nThema: {thema}\n\n"
+                 "Das Thema im Spiel (`./mc theme`) geht vor, falls Le dort eines gesetzt hat.\n")
+    for fn, text in (("notizen.md", f"# Notizen von {name}\n\n(noch leer)\n"),
+                     ("ziele.md", f"# Ziele von {name}\n\n(noch keine)\n")):
+        if not os.path.exists(os.path.join(d, fn)):
+            write(os.path.join(d, fn), text)
+    st = load_state(name)
+    if model:
+        st["model"] = model
+    st.setdefault("model", "sonnet")
+    save_state(name, st)
+    return st
+
+
+def system_prompt(name):
+    return (
+        f"Dein Spielername ist {name}. Dein Ordner ist bots/{name}/. {read(os.path.join(folder(name), 'persona.md'))}\n"
+        "Regeln für diese Sitzung: Benutze im Terminal ausschließlich `./mc …`, immer als einzelnen Befehl ohne "
+        "vorangestellte Variablen, ohne `&&`, `;` oder `|`. Dateien änderst du nur in deinem Ordner. "
+        "Schreib keine langen Erklärungen in deine Antworten: Du handelst im Spiel, niemand liest hier mit."
+    )
+
+
+def run_turn(name, state, prompt):
+    """Ein Zug: ruft Claude Code auf und gibt (ok, text) zurück."""
+    cmd = [CLAUDE, "-p", prompt, "--model", state["model"], "--output-format", "json",
+           "--permission-mode", "dontAsk", "--max-turns", "150",
+           "--allowedTools", "Bash(./mc *)", "Read", f"Edit(./bots/{name}/**)",
+           "--append-system-prompt", system_prompt(name)]
+    if state.get("session_id"):
+        cmd += ["--resume", state["session_id"]]
+    env = dict(os.environ)
+    env["CLAUDEBOT_NAME"] = name
+    env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = CONTEXT
+    env.pop("ANTHROPIC_API_KEY", None)  # sonst nimmt Claude Code den Schlüssel statt des Abos
+    try:
+        r = subprocess.run(cmd, cwd=HERE, env=env, capture_output=True, text=True)
+    except FileNotFoundError:
+        return False, f"'{CLAUDE}' nicht gefunden. Claude Code installieren und anmelden."
+    out = r.stdout.strip()
+    try:
+        res = json.loads(out.splitlines()[-1]) if out else {}
+    except ValueError:
+        res = {}
+    if res.get("session_id"):
+        state["session_id"] = res["session_id"]
+    state["turns"] = state.get("turns", 0) + 1
+    state["cost_usd"] = round(state.get("cost_usd", 0) + float(res.get("total_cost_usd") or 0), 4)
+    save_state(name, state)
+    # Ende durch --max-turns ist kein Fehler: der nächste Zug macht weiter.
+    ok = (r.returncode == 0 and not res.get("is_error")) or res.get("subtype") == "error_max_turns"
+    text = str(res.get("result") or r.stderr.strip() or out)[-400:]
+    return ok, text
+
+
+def play(name):
+    state = load_state(name)
+    stop = os.path.join(folder(name), "STOP")
+    if os.path.exists(stop):
+        os.remove(stop)
+    state["pid"] = os.getpid()
+    save_state(name, state)
+    log = lambda s: print(f"[{time.strftime('%H:%M:%S')}] {name}: {s}", flush=True)
+    log(f"startet mit Modell {state['model']}. Anhalten: Strg+C oder `bot stop {name}`.")
+    pause, first = 2, not state.get("session_id")
+    try:
+        while not os.path.exists(stop):
+            prompt = (START_PROMPT if first else NEXT_PROMPT).format(name=name)
+            ok, text = run_turn(name, state, prompt)
+            first = False
+            if ok:
+                pause = 2
+                log("Zug beendet. " + text.replace("\n", " ")[:160])
+            else:
+                # Meist ein erreichtes Abo-Limit oder keine Verbindung: warten, dann erneut versuchen.
+                if "No conversation found" in text or "session" in text.lower() and "not found" in text.lower():
+                    state.pop("session_id", None)
+                    first = True
+                pause = min(max(pause * 2, 30), 900)
+                log(f"Fehler, neuer Versuch in {pause} s: " + text.replace("\n", " ")[:300])
+            for _ in range(pause):
+                if os.path.exists(stop):
+                    break
+                time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    state.pop("pid", None)
+    save_state(name, state)
+    if os.path.exists(stop):
+        os.remove(stop)
+    log("angehalten. Die Spielfigur bleibt in der Welt (im Spiel: /claude despawn " + name + ").")
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, TypeError):
+        return False
+
+
+def names():
+    return sorted(n for n in os.listdir(BOTS) if os.path.isdir(folder(n))) if os.path.isdir(BOTS) else []
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd")
+    s = sub.add_parser("start")
+    s.add_argument("name")
+    s.add_argument("--model", "-m")
+    s.add_argument("--thema", "-t", default="")
+    s.add_argument("--charakter", "-c", default="")
+    s.add_argument("--hintergrund", "-b", action="store_true")
+    s.add_argument("--neu", action="store_true", help="Gespräch neu beginnen (Notizen bleiben)")
+    sub.add_parser("stop").add_argument("name")
+    sub.add_parser("list")
+    a = ap.parse_args()
+
+    if a.cmd == "start":
+        if not NAME_RE.match(a.name):
+            sys.exit("Ungültiger Name (3–16 Zeichen, A-Z a-z 0-9 _).")
+        st = setup(a.name, a.model, a.thema, a.charakter)
+        if alive(st.get("pid")):
+            sys.exit(f"{a.name} läuft schon (Prozess {st['pid']}).")
+        if a.neu:
+            st.pop("session_id", None)
+            save_state(a.name, st)
+        if a.hintergrund:
+            logf = open(os.path.join(folder(a.name), "bot.log"), "a", encoding="utf-8")
+            p = subprocess.Popen([sys.executable, os.path.abspath(__file__), "start", a.name],
+                                 stdout=logf, stderr=logf, stdin=subprocess.DEVNULL, start_new_session=True)
+            print(f"{a.name} läuft im Hintergrund (Prozess {p.pid}). Protokoll: bots/{a.name}/bot.log")
+        else:
+            signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+            play(a.name)
+    elif a.cmd == "stop":
+        for n in (names() if a.name == "all" else [a.name]):
+            if not os.path.isdir(folder(n)):
+                print(f"{n}: unbekannt")
+                continue
+            if alive(load_state(n).get("pid")):
+                write(os.path.join(folder(n), "STOP"), "")
+                print(f"{n}: hält nach dem laufenden Zug an.")
+            else:
+                print(f"{n}: läuft nicht.")
+    elif a.cmd == "list":
+        for n in names():
+            st = load_state(n)
+            print(f"{n}: Modell {st.get('model', '?')}, {'läuft' if alive(st.get('pid')) else 'angehalten'}, "
+                  f"{st.get('turns', 0)} Züge")
+        if not names():
+            print("Keine Bots. Start: ./bot start <Name> --model sonnet")
+    else:
+        ap.print_help()
+
+
+if __name__ == "__main__":
+    main()

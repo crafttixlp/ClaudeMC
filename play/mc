@@ -4,7 +4,10 @@
   mc <befehl …>     Befehl ausführen, z.B.  mc state   mc goto 10 64 -5   mc say Hallo!
   mc wait [sek]     auf neue Ereignisse warten (Chat von Mitspielern, Schaden …), Standard 90 s
   mc events         neue Ereignisse sofort abholen
-Umgebungsvariablen: CLAUDEBOT_PORT (Standard 25599), MC_WAIT = max. Wartezeit pro Befehl (Standard 60 s)
+  mc image          Bild aus deiner Sicht speichern (PNG) und Legende ausgeben
+  mc bots           alle Bots auflisten
+Umgebungsvariablen: CLAUDEBOT_NAME = Name deines Bots (ohne: Standard-Bot), CLAUDEBOT_TOKEN (nur bei require_token),
+                    CLAUDEBOT_PORT (Standard 25599), MC_WAIT = max. Wartezeit pro Befehl (Standard 60 s)
 """
 import os
 import sys
@@ -13,14 +16,21 @@ import urllib.request
 
 PORT = int(os.environ.get("CLAUDEBOT_PORT", "25599"))
 BASE = f"http://127.0.0.1:{PORT}"
+NAME = os.environ.get("CLAUDEBOT_NAME", "").strip()
+TOKEN = os.environ.get("CLAUDEBOT_TOKEN", "").strip()
+PRE = f"/bots/{NAME}" if NAME else ""
 
 
 def call(path, body=None, timeout=120):
     data = body.encode("utf-8") if body is not None else None
     req = urllib.request.Request(BASE + path, data=data, method="POST" if data is not None else "GET")
+    if TOKEN:
+        req.add_header("X-Bot-Token", TOKEN)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        return e.read().decode("utf-8")
     except urllib.error.URLError as e:
         return (f"Keine Verbindung zu Minecraft ({BASE}): {e.reason}\n"
                 "Läuft Minecraft mit der ClaudeBot-Mod und ist eine Welt geladen?\n")
@@ -28,21 +38,57 @@ def call(path, body=None, timeout=120):
         return "Zeitüberschreitung – das Spiel antwortet nicht (pausiert?).\n"
 
 
+def image():
+    """Holt das Bild aus Sicht des Bots und speichert es in dessen Ordner."""
+    import urllib.parse
+    req = urllib.request.Request(BASE + (PRE or "/bots/" + default_name()) + "/image")
+    if TOKEN:
+        req.add_header("X-Bot-Token", TOKEN)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = r.read()
+            legend = urllib.parse.unquote_plus(r.headers.get("X-Legend", ""))
+    except urllib.error.HTTPError as e:
+        return e.read().decode("utf-8")
+    except urllib.error.URLError as e:
+        return f"Keine Verbindung zu Minecraft ({BASE}): {e.reason}\n"
+    here = os.path.dirname(os.path.abspath(__file__))
+    folder = os.path.join(here, "bots", NAME) if NAME else here
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "sicht.png")
+    with open(path, "wb") as f:
+        f.write(data)
+    rel = os.path.relpath(path, here)
+    return f"Bild gespeichert: {rel} – sieh es dir mit dem Read-Werkzeug an.\n{legend}"
+
+
+def default_name():
+    """Name des Standard-Bots (erste Zeile von /bots)."""
+    first = call("/bots").split(":")[0].strip()
+    return first if first and " " not in first else "Claude"
+
+
 def main():
     args = sys.argv[1:]
     if not args or args[0] in ("-h", "--help"):
         print(__doc__)
-        print(call("/cmd", "help"), end="")
+        print(call(PRE + "/cmd", "help"), end="")
         return
     if args[0] == "wait":
         sec = int(args[1]) if len(args) > 1 else 90
-        print(call(f"/events?wait={sec}", timeout=sec + 15), end="")
+        print(call(f"{PRE}/events?wait={sec}", timeout=sec + 15), end="")
         return
     if args[0] == "events":
-        print(call("/events?wait=0"), end="")
+        print(call(PRE + "/events?wait=0"), end="")
+        return
+    if args[0] in ("image", "bild"):
+        print(image(), end="")
+        return
+    if args[0] == "bots":
+        print(call("/bots"), end="")
         return
     wait = int(os.environ.get("MC_WAIT", "60"))
-    print(call(f"/cmd?wait={wait}", " ".join(args), timeout=wait + 30), end="")
+    print(call(f"{PRE}/cmd?wait={wait}", " ".join(args), timeout=wait + 30), end="")
 
 
 if __name__ == "__main__":

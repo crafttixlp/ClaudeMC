@@ -1,6 +1,7 @@
 package dev.lea.claudebot;
 
 import com.mojang.authlib.GameProfile;
+import net.minecraft.block.entity.SignBlockEntity;
 import net.minecraft.block.BedBlock;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -59,13 +60,9 @@ import static dev.lea.claudebot.Describe.pos;
 /** Steuert den Bot: Befehle, laufende Aufgaben, Ereignisse. Läuft im Server-Thread. */
 public class BotController {
 	static final Logger LOG = LoggerFactory.getLogger("claudebot");
-	private static volatile BotController INSTANCE;
-
-	public static BotController get() { return INSTANCE; }
-	static void clear() { INSTANCE = null; }
-
 	public final MinecraftServer server;
 	public final EventLog events = new EventLog();
+	final Vision vision = new Vision(this);
 	public final String botName;
 	public BotPlayer bot;
 	private Task task;
@@ -77,7 +74,6 @@ public class BotController {
 	public BotController(MinecraftServer server, String botName) {
 		this.server = server;
 		this.botName = botName;
-		INSTANCE = this;
 	}
 
 	public boolean online() { return bot != null && !bot.isRemoved(); }
@@ -88,6 +84,7 @@ public class BotController {
 	public String spawn(ServerWorld w, Vec3d p, float yaw) {
 		if (online()) return botName + " ist schon im Spiel bei " + pos(bot.getBlockPos());
 		if (server.getPlayerManager().getPlayer(botName) != null) return "Ein Spieler namens " + botName + " ist schon online.";
+		if (BotRegistry.onlineCount() >= BotRegistry.maxBots) return "Es sind schon " + BotRegistry.maxBots + " Bots im Spiel (max_bots in config/claudebot.properties).";
 		GameProfile profile = new GameProfile(Uuids.getOfflinePlayerUuid(botName), botName);
 		BotPlayer b = new BotPlayer(server, w, profile);
 		server.getPlayerManager().onPlayerConnect(new FakeConnection(), b, ConnectedClientData.createDefault(profile, false));
@@ -158,6 +155,9 @@ public class BotController {
 		int food = bot.getHungerManager().getFoodLevel();
 		if (food <= 6 && !hungerWarned) { hungerWarned = true; events.add("WARNUNG: Hunger " + food + "/20 – iss etwas ('eat')."); }
 		if (food > 10) hungerWarned = false;
+		// Reflex: im Leerlauf essen, wenn der Hunger drückt oder Leben fehlt.
+		if (BotRegistry.reflexes && task == null && (food <= 8 || (food < 18 && bot.getHealth() < 10)) && findSlot(BotController::isGoodFood) >= 0)
+			reflex(new UseItemTask("eat", BotController::isGoodFood), "REFLEX: Du isst (Hunger " + food + "/20).");
 		boolean someoneSleeps = false;
 		for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) {
 			if (p != bot && p.isSleeping()) someoneSleeps = true;
@@ -175,6 +175,19 @@ public class BotController {
 		Entity a = src.getAttacker();
 		events.add(String.format(Locale.ROOT, "SCHADEN: %.1f durch %s%s (Leben vorher %.1f/20)", amount, src.getName(),
 				a != null ? " von " + a.getName().getString() + " (#" + a.getId() + ")" : "", bot.getHealth()));
+		if (bot.getHealth() - amount <= 6) events.add("WARNUNG: Leben sehr niedrig – weg von der Gefahr (goto), dann essen.");
+		// Reflex: Ein Modell braucht Sekunden für eine Antwort – gegen Monster wehrt sich der Bot sofort selbst.
+		if (BotRegistry.reflexes && a instanceof Monster && a.isAlive() && !(task instanceof AttackTask)) {
+			String old = task != null ? " Unterbrochen: " + task.name + "." : "";
+			reflex(new AttackTask("#" + a.getId(), 1), "REFLEX: Du wehrst dich gegen " + Describe.entityId(a) + " (#" + a.getId() + ")." + old);
+		}
+	}
+
+	/** Startet eine Aufgabe ohne Befehl; das Ergebnis kommt als Ereignis. */
+	private void reflex(Task t, String msg) {
+		events.add(msg);
+		t.reportLater = true;
+		start(t);
 	}
 
 	void cancelTask(String why) {
@@ -197,14 +210,20 @@ public class BotController {
 			switch (v) {
 				case "help", "hilfe": return help();
 				case "spawn": return cmdSpawn(a);
+				case "theme", "thema": {
+					String th = BotRegistry.theme(botName);
+					return th.isEmpty() ? "Kein Thema gesetzt – spiel frei nach eigenen Zielen." : "Dein Thema: " + th;
+				}
+				case "bots": return BotRegistry.list();
 				case "despawn": return despawn();
 			}
 			if (!online()) return botName + " ist nicht im Spiel. Erst 'spawn' (oder im Spiel /claude spawn).";
 			switch (v) {
 				case "state", "status", "s": return Describe.state(this);
 				case "inv", "inventory": return Describe.inventory(bot);
-				case "nearby": return Describe.nearby(bot, arg(a, 1, 24, 64), 40);
-				case "scan": return Describe.scan(bot, arg(a, 1, 10, 32));
+				case "see", "sehen": return vision.see(a.length > 1 && (a[1].equals("around") || a[1].equals("rundum")));
+				case "nearby": return BotRegistry.fairSight ? vision.entities(true, arg(a, 1, 24, 64), 40) : Describe.nearby(bot, arg(a, 1, 24, 64), 40);
+				case "scan": return BotRegistry.fairSight ? vision.see(true) : Describe.scan(bot, arg(a, 1, 10, 32));
 				case "map": {
 					int r = arg(a, 1, 10, 24);
 					int[] layers = a.length > 2 ? Arrays.stream(a, 2, a.length).mapToInt(Integer::parseInt).toArray() : new int[]{1, 0, -1};
@@ -217,9 +236,61 @@ public class BotController {
 					server.getPlayerManager().broadcast(Text.literal("<" + botName + "> " + msg), false);
 					return "Gesagt: " + msg;
 				}
+				case "msg", "tell", "w": {
+					if (a.length < 3) return "msg <spieler> <text>";
+					if (!a[1].matches("[A-Za-z0-9_]{1,16}")) return "Ungültiger Name: " + a[1];
+					if (server.getPlayerManager().getPlayer(a[1]) == null) return "Spieler nicht online: " + a[1];
+					String msg = line.trim().split("\\s+", 3)[2].replaceAll("[\\r\\n]+", " ");
+					server.getCommandManager().executeWithPrefix(bot.getCommandSource(), "msg " + a[1] + " " + msg);
+					return "Geflüstert an " + a[1] + ": " + msg;
+				}
+				case "sign": {
+					if (a.length < 5) return "sign <x y z> <zeile1|zeile2|zeile3|zeile4>";
+					BlockPos sp = parsePos(a, 1);
+					if (!(world().getBlockEntity(sp) instanceof SignBlockEntity sign)) return "Bei " + pos(sp) + " steht kein Schild.";
+					if (bot.getEyePos().distanceTo(Vec3d.ofCenter(sp)) > 5) return "Zu weit weg vom Schild (max. 5 Blöcke).";
+					if (sign.isWaxed()) return "Das Schild ist gewachst und nicht mehr änderbar.";
+					String[] rows = line.trim().split("\\s+", 5)[4].split("\\|", 4);
+					lookAt(Vec3d.ofCenter(sp));
+					boolean front = sign.isPlayerFacingFront(bot);
+					sign.changeText(t -> {
+						for (int i = 0; i < 4; i++) {
+							String row = i < rows.length ? rows[i].trim() : "";
+							if (row.length() > 15) row = row.substring(0, 15);
+							t = t.withMessage(i, Text.literal(row));
+						}
+						return t;
+					}, front);
+					world().updateListeners(sp, sign.getCachedState(), sign.getCachedState(), 3);
+					return "Schild bei " + pos(sp) + " beschrieben (max. 15 Zeichen je Zeile).";
+				}
+				case "read": {
+					if (a.length < 4) return "read <x y z>";
+					BlockPos sp = parsePos(a, 1);
+					if (!(world().getBlockEntity(sp) instanceof SignBlockEntity sign)) return "Bei " + pos(sp) + " steht kein Schild.";
+					return "Schild bei " + pos(sp) + ": " + signText(sign);
+				}
 				case "stop": cancelTask("abgebrochen (stop)"); return "Gestoppt.";
 				case "look": {
 					if (a.length >= 4) { lookAt(Vec3d.ofCenter(parsePos(a, 1))); return "Schaue nach " + pos(parsePos(a, 1)); }
+					if (a.length < 2) return "look <x y z | spieler | north|east|south|west|left|right|back|up|down|level>";
+					Vec3d ey = bot.getEyePos();
+					double yw = Math.toRadians(bot.getYaw());
+					Vec3d fwd = new Vec3d(-Math.sin(yw), 0, Math.cos(yw)), rgt = new Vec3d(-Math.cos(yw), 0, -Math.sin(yw));
+					Vec3d tgt = switch (a[1].toLowerCase(Locale.ROOT)) {
+						case "north", "norden" -> ey.add(0, 0, -8);
+						case "south", "süden", "sueden" -> ey.add(0, 0, 8);
+						case "east", "osten" -> ey.add(8, 0, 0);
+						case "west", "westen" -> ey.add(-8, 0, 0);
+						case "left", "links" -> ey.subtract(rgt.multiply(8));
+						case "right", "rechts" -> ey.add(rgt.multiply(8));
+						case "back", "hinten" -> ey.subtract(fwd.multiply(8));
+						case "level", "geradeaus" -> ey.add(fwd.multiply(8));
+						case "up", "oben" -> ey.add(fwd.multiply(4)).add(0, 7, 0);
+						case "down", "unten" -> ey.add(fwd.multiply(4)).add(0, -7, 0);
+						default -> null;
+					};
+					if (tgt != null) { lookAt(tgt); return "Blick nach " + Describe.facing(bot.getYaw()) + ". Mit 'see' siehst du, was dort ist."; }
 					PlayerEntity p = player(a[1]);
 					if (p == null) return "Spieler nicht gefunden: " + a[1];
 					lookAt(p.getEyePos());
@@ -333,12 +404,27 @@ public class BotController {
 		return spawn(ow, new Vec3d(sp.getX() + 0.5, ow.getTopY(Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, sp.getX(), sp.getZ()), sp.getZ() + 0.5), 0f);
 	}
 
+	static String signText(SignBlockEntity sign) {
+		StringBuilder sb = new StringBuilder();
+		for (boolean front : new boolean[]{true, false}) {
+			StringBuilder side = new StringBuilder();
+			for (Text t : sign.getText(front).getMessages(false)) {
+				String r = t.getString().trim();
+				if (!r.isEmpty()) side.append(side.length() > 0 ? " | " : "").append(r);
+			}
+			if (side.length() > 0) sb.append(sb.length() > 0 ? "  (Rückseite: " + side + ")" : side);
+		}
+		return sb.length() == 0 ? "(leer)" : sb.toString();
+	}
+
 	static String help() {
 		return """
 				Befehle (Koordinaten: x y z, auch ~ für deine Position, z.B. ~ ~-1 ~):
-				  Info:    state | inv | nearby [r] | scan [r] | map [r] [ebenen…] | top [r] | recipe <item>
-				  Chat:    say <text>
-				  Laufen:  goto <x y z | spieler> | follow <spieler> | stop | look <x y z | spieler>
+				  Info:    state | inv | see (Blick nach vorne) | see around (Rundumblick) | nearby [r]
+				           map [r] [ebenen…] | top [r] | recipe <item>
+				  Chat:    say <text> | msg <spieler> <text> (flüstern, nur der Empfänger liest es)
+				  Schild:  sign <x y z> <zeile1|zeile2|…> (vorher mit place setzen) | read <x y z>
+				  Laufen:  goto <x y z | spieler> | follow <spieler> | stop | look <x y z | spieler | north|east|south|west|left|right|back|up|down>
 				  Abbauen: mine <x y z> | mine <block> [anzahl] | mine! <block> [anzahl] (auch ohne passendes Werkzeug)
 				  Bauen:   place <item> <x y z> | use <x y z> (Rechtsklick: Tür, Hebel, Knopf…) | sleep | wake
 				  Items:   craft <item> [anzahl] | equip <item> | select <0-8> | drop <item> [anzahl]
@@ -346,7 +432,7 @@ public class BotController {
 				  Kisten/Ofen: container <x y z> | take <x y z> [item|all] [anzahl]
 				           put <x y z> <item> [anzahl] | fuel <x y z> <item> [anzahl]
 				  Kampf:   attack <#id | mobtyp | hostile> [anzahl]
-				  Sonst:   spawn [x y z] | despawn
+				  Sonst:   spawn [x y z] | despawn | theme (dein Thema) | bots (alle Bots)
 				Items/Blöcke als Minecraft-ID ohne 'minecraft:', z.B. oak_log, cobblestone, iron_pickaxe.
 				""";
 	}
@@ -989,6 +1075,7 @@ public class BotController {
 		final Navigator nav = new Navigator();
 		final Set<Long> blacklist = new HashSet<>();
 		BlockPos cur, last;
+		int lastLook = -100;
 		int phase, mined, fails, breakTicks, collectTicks;
 		float progress;
 		String note = "";
@@ -1008,7 +1095,19 @@ public class BotController {
 			BlockPos best = null;
 			double bd = Double.MAX_VALUE;
 			int r = 32, ry = 16;
-			for (BlockPos q : BlockPos.iterate(c.add(-r, -ry, -r), c.add(r, ry, r))) {
+			Iterable<BlockPos> candidates;
+			if (BotRegistry.fairSight) {
+				// Nur Blöcke, die der Bot gesehen hat. Kennt er keine, schaut er sich einmal um.
+				List<BlockPos> known = vision.remembered(block);
+				known.removeIf(q -> blacklist.contains(q.asLong()));
+				if (known.isEmpty() && server.getTicks() - lastLook >= 20) {
+					lastLook = server.getTicks();
+					vision.lookAround();
+					known = vision.remembered(block);
+				}
+				candidates = known;
+			} else candidates = BlockPos.iterate(c.add(-r, -ry, -r), c.add(r, ry, r));
+			for (BlockPos q : candidates) {
 				if (!w.getBlockState(q).isOf(block) || blacklist.contains(q.asLong())) continue;
 				double d = Math.sqrt(q.getSquaredDistance(c));
 				boolean exposed = false;
@@ -1024,7 +1123,7 @@ public class BotController {
 			switch (phase) {
 				case 0 -> {
 					cur = fixed != null ? fixed : findNearest();
-					if (cur == null) { complete(summary("Keine (weiteren) " + Registries.BLOCK.getId(block).getPath() + " in der Nähe gefunden")); return; }
+					if (cur == null) { complete(summary("Keine (weiteren) " + Registries.BLOCK.getId(block).getPath() + (BotRegistry.fairSight ? " in Sicht – geh weiter oder schau dich um ('see around')" : " in der Nähe gefunden"))); return; }
 					BlockState s = w.getBlockState(cur);
 					if (s.isAir()) { complete("Bei " + pos(cur) + " ist nur Luft"); return; }
 					if (!bot.isCreative() && s.isToolRequired()) {
