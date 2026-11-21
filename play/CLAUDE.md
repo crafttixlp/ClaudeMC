@@ -80,7 +80,7 @@ Koordinaten sind Blockkoordinaten `x y z`; `~` heißt „meine Position“ (z. B
 
 ## Wichtig zu wissen
 
-- Lange Aufgaben (Laufen, Abbauen, Kämpfen) blockieren bis zu 60 s. Dauert es länger, kommt „Läuft noch“, und das Ergebnis erscheint später als Ereignis. Mit `MC_WAIT=180 ./mc goto …` wartest du länger.
+- Lange Aufgaben (Laufen, Abbauen, Kämpfen) blockieren bis zu 60 s. Dauert es länger, kommt „Läuft noch“, und das Ergebnis erscheint später als Ereignis. Warte dann mit `./mc wait 60` auf das Ergebnis.
 - Ein neuer Aufgaben-Befehl bricht die laufende Aufgabe ab.
 - `mine <block>` baut nur ab, wenn du das passende Werkzeug hast (Stein → Spitzhacke). `mine!` erzwingt es (gibt dann keine Drops).
 - Erst Holz → `oak_planks` → `crafting_table` und `stick` → Werkzeuge. Die Werkbank musst du platzieren (`place crafting_table …`), bevor du 3×3-Rezepte herstellen kannst.
