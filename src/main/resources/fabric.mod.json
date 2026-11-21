@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "claudebot",
+  "version": "${version}",
+  "name": "ClaudeBot",
+  "description": "Lässt Claude Code über eine lokale Text-Schnittstelle als eigener Spieler mitspielen.",
+  "authors": ["Lea"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": { "main": ["dev.lea.claudebot.ClaudeBotMod"] },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
