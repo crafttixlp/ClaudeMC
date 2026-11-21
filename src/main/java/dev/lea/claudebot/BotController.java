@@ -1,6 +1,7 @@
 package dev.lea.claudebot;
 
 import com.mojang.authlib.GameProfile;
+import net.minecraft.block.entity.SignBlockEntity;
 import net.minecraft.block.BedBlock;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -212,6 +213,40 @@ public class BotController {
 					server.getPlayerManager().broadcast(Text.literal("<" + botName + "> " + msg), false);
 					return "Gesagt: " + msg;
 				}
+				case "msg", "tell", "w": {
+					if (a.length < 3) return "msg <spieler> <text>";
+					if (!a[1].matches("[A-Za-z0-9_]{1,16}")) return "Ungültiger Name: " + a[1];
+					if (server.getPlayerManager().getPlayer(a[1]) == null) return "Spieler nicht online: " + a[1];
+					String msg = line.trim().split("\\s+", 3)[2].replaceAll("[\\r\\n]+", " ");
+					server.getCommandManager().executeWithPrefix(bot.getCommandSource(), "msg " + a[1] + " " + msg);
+					return "Geflüstert an " + a[1] + ": " + msg;
+				}
+				case "sign": {
+					if (a.length < 5) return "sign <x y z> <zeile1|zeile2|zeile3|zeile4>";
+					BlockPos sp = parsePos(a, 1);
+					if (!(world().getBlockEntity(sp) instanceof SignBlockEntity sign)) return "Bei " + pos(sp) + " steht kein Schild.";
+					if (bot.getEyePos().distanceTo(Vec3d.ofCenter(sp)) > 5) return "Zu weit weg vom Schild (max. 5 Blöcke).";
+					if (sign.isWaxed()) return "Das Schild ist gewachst und nicht mehr änderbar.";
+					String[] rows = line.trim().split("\\s+", 5)[4].split("\\|", 4);
+					lookAt(Vec3d.ofCenter(sp));
+					boolean front = sign.isPlayerFacingFront(bot);
+					sign.changeText(t -> {
+						for (int i = 0; i < 4; i++) {
+							String row = i < rows.length ? rows[i].trim() : "";
+							if (row.length() > 15) row = row.substring(0, 15);
+							t = t.withMessage(i, Text.literal(row));
+						}
+						return t;
+					}, front);
+					world().updateListeners(sp, sign.getCachedState(), sign.getCachedState(), 3);
+					return "Schild bei " + pos(sp) + " beschrieben (max. 15 Zeichen je Zeile).";
+				}
+				case "read": {
+					if (a.length < 4) return "read <x y z>";
+					BlockPos sp = parsePos(a, 1);
+					if (!(world().getBlockEntity(sp) instanceof SignBlockEntity sign)) return "Bei " + pos(sp) + " steht kein Schild.";
+					return "Schild bei " + pos(sp) + ": " + signText(sign);
+				}
 				case "stop": cancelTask("abgebrochen (stop)"); return "Gestoppt.";
 				case "look": {
 					if (a.length >= 4) { lookAt(Vec3d.ofCenter(parsePos(a, 1))); return "Schaue nach " + pos(parsePos(a, 1)); }
@@ -328,11 +363,25 @@ public class BotController {
 		return spawn(ow, new Vec3d(sp.getX() + 0.5, ow.getTopY(Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, sp.getX(), sp.getZ()), sp.getZ() + 0.5), 0f);
 	}
 
+	static String signText(SignBlockEntity sign) {
+		StringBuilder sb = new StringBuilder();
+		for (boolean front : new boolean[]{true, false}) {
+			StringBuilder side = new StringBuilder();
+			for (Text t : sign.getText(front).getMessages(false)) {
+				String r = t.getString().trim();
+				if (!r.isEmpty()) side.append(side.length() > 0 ? " | " : "").append(r);
+			}
+			if (side.length() > 0) sb.append(sb.length() > 0 ? "  (Rückseite: " + side + ")" : side);
+		}
+		return sb.length() == 0 ? "(leer)" : sb.toString();
+	}
+
 	static String help() {
 		return """
 				Befehle (Koordinaten: x y z, auch ~ für deine Position, z.B. ~ ~-1 ~):
 				  Info:    state | inv | nearby [r] | scan [r] | map [r] [ebenen…] | top [r] | recipe <item>
-				  Chat:    say <text>
+				  Chat:    say <text> | msg <spieler> <text> (flüstern, nur der Empfänger liest es)
+				  Schild:  sign <x y z> <zeile1|zeile2|…> (vorher mit place setzen) | read <x y z>
 				  Laufen:  goto <x y z | spieler> | follow <spieler> | stop | look <x y z | spieler>
 				  Abbauen: mine <x y z> | mine <block> [anzahl] | mine! <block> [anzahl] (auch ohne passendes Werkzeug)
 				  Bauen:   place <item> <x y z> | use <x y z> (Rechtsklick: Tür, Hebel, Knopf…) | sleep | wake
