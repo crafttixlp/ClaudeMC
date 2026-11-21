@@ -48,6 +48,7 @@ Koordinaten sind Blockkoordinaten `x y z`; `~` heißt „meine Position“ (z. B
 | Inventar | `./mc inv` |
 | Sehen, was vor dir liegt: Fadenkreuz, Wesen, Blöcke mit Position, Schilder | `./mc see` |
 | Rundumblick in alle Richtungen | `./mc see around` |
+| Bild aus deiner Sicht (danach die genannte PNG-Datei mit Read ansehen; sparsam nutzen, etwa für Bauwerke und Landschaft) | `./mc image` |
 | Kopf drehen | `./mc look north\|east\|south\|west\|left\|right\|back\|up\|down`, `./mc look x y z`, `./mc look Le` |
 | Wesen in Sichtlinie, dazu Gehörtes | `./mc nearby [radius]` |
 | Karte als Draufsicht: oberster Block + Höhe | `./mc top [radius]` |

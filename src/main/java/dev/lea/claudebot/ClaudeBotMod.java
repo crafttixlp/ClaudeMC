@@ -29,6 +29,8 @@ public class ClaudeBotMod implements ModInitializer {
 	@Override
 	public void onInitialize() {
 		loadConfig();
+		// Der Bildmodus nutzt AWT nur zum Malen in den Speicher – nie mit Fenster.
+		if (System.getProperty("java.awt.headless") == null) System.setProperty("java.awt.headless", "true");
 
 		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
 			BotRegistry.start(server, FabricLoader.getInstance().getConfigDir());

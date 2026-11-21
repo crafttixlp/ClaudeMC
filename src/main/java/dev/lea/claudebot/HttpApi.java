@@ -18,6 +18,7 @@ import java.util.concurrent.TimeUnit;
  *   GET  /bots                         → Liste aller Bots
  *   POST /bots/{name}/cmd?wait=SEK     Körper = Befehlszeile → Ergebnis + neue Ereignisse dieses Bots
  *   GET  /bots/{name}/events?wait=SEK  → wartet auf neue Ereignisse dieses Bots (Chat …)
+ *   GET  /bots/{name}/image            → PNG aus Sicht des Bots; Legende im Header X-Legend (URL-kodiert)
  *   POST /cmd, GET /events             → dasselbe für den Standard-Bot
  * Ist require_token=true gesetzt, braucht jeder Bot-Aufruf den Header X-Bot-Token.
  */
@@ -69,7 +70,8 @@ public class HttpApi {
 		switch (action) {
 			case "cmd" -> cmd(ex, name);
 			case "events" -> events(ex, name);
-			default -> send(ex, 404, "Unbekannt. Möglich: /bots, /bots/{name}/cmd, /bots/{name}/events");
+			case "image" -> image(ex, name);
+			default -> send(ex, 404, "Unbekannt. Möglich: /bots, /bots/{name}/cmd, /bots/{name}/events, /bots/{name}/image");
 		}
 	}
 
@@ -113,6 +115,24 @@ public class HttpApi {
 		String ev = c.events.drain();
 		if (!ev.isEmpty()) out += "\n--- Neue Ereignisse ---\n" + ev;
 		send(ex, out);
+	}
+
+	private void image(HttpExchange ex, String name) throws IOException {
+		BotController c = find(ex, name, false);
+		if (c == null) return;
+		try {
+			Object r = BotRegistry.server.submit((java.util.function.Supplier<Object>) () -> {
+				if (!c.online()) return c.botName + " ist nicht im Spiel.";
+				try { return Painter.paint(c); } catch (Exception e) { return "Bild fehlgeschlagen: " + e; }
+			}).get(30, TimeUnit.SECONDS);
+			if (!(r instanceof Painter.Picture pic)) { send(ex, 409, String.valueOf(r)); return; }
+			ex.getResponseHeaders().set("Content-Type", "image/png");
+			ex.getResponseHeaders().set("X-Legend", java.net.URLEncoder.encode(pic.legend(), StandardCharsets.UTF_8));
+			ex.sendResponseHeaders(200, pic.png().length);
+			try (OutputStream os = ex.getResponseBody()) { os.write(pic.png()); }
+		} catch (Exception e) {
+			send(ex, 500, "Fehler: " + e);
+		}
 	}
 
 	private void events(HttpExchange ex, String name) throws IOException {
