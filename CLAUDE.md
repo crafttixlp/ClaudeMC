@@ -5,8 +5,8 @@ Fabric-Mod für Minecraft **1.21.1** (Java 21, Yarn-Mappings), mit der Claude Co
 Sprache: Antworte Lea auf Deutsch, kurz, ohne Wiederholungen.
 
 ## Stand
-- **v0.1 ist geschrieben, aber noch nie kompiliert.** Der Code entstand ohne Zugriff auf Minecraft-Jars; Namen wurden gegen Yarn 1.21.1+build.3 und Fabric API 0.116.9+1.21.1 abgeglichen. Der erste `./gradlew build` ist der erste echte Test – mit Compile-Fehlern rechnen und sie beheben.
-- Noch nicht im Spiel getestet. Wahrscheinlichste Laufzeit-Risiken: Bot-Spawn (`FakeConnection`, `PlayerManager.onPlayerConnect`), Bewegung (Position wird pro Tick gesetzt, Physik läuft parallel), Respawn nach Tod.
+- **v0.1 kompiliert** (Loom 1.10.5, Yarn 1.21.1+build.3, Fabric API 0.116.9+1.21.1). Auf Dedicated Server getestet: Spawn, Chat, Laufen, Abbauen, Crafting, Platzieren, Despawn/Spawn mit Inventar.
+- Noch nicht mit echtem Client getestet. Offen: Wahrscheinlichste Laufzeit-Risiken: Bot-Spawn (`FakeConnection`, `PlayerManager.onPlayerConnect`), Bewegung (Position wird pro Tick gesetzt, Physik läuft parallel), Respawn nach Tod.
 - Nächstes Ziel danach: `docs/KONZEPT.md` (JSON-Frames, echtes Sichtfeld), Ausbaustufe 1.
 
 ## Befehle

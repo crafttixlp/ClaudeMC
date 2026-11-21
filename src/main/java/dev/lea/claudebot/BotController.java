@@ -92,7 +92,7 @@ public class BotController {
 		BotPlayer b = new BotPlayer(server, w, profile);
 		server.getPlayerManager().onPlayerConnect(new FakeConnection(), b, ConnectedClientData.createDefault(profile, false));
 		b.teleport(w, p.x, p.y, p.z, yaw, 0f);
-		b.unsetRemoved();
+		b.revive();
 		EntityAttributeInstance step = b.getAttributeInstance(EntityAttributes.GENERIC_STEP_HEIGHT);
 		if (step != null) step.setBaseValue(0.6);
 		bot = b;

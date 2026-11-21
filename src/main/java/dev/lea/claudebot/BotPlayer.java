@@ -28,6 +28,11 @@ public class BotPlayer extends ServerPlayerEntity {
 		}
 	}
 
+	/** Entity.unsetRemoved ist protected. */
+	public void revive() {
+		this.unsetRemoved();
+	}
+
 	@Override
 	public String getIp() {
 		return "127.0.0.1";
