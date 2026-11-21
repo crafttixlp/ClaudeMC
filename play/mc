@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""mc – Text-Steuerung für den ClaudeBot in Minecraft.
+
+  mc <befehl …>     Befehl ausführen, z.B.  mc state   mc goto 10 64 -5   mc say Hallo!
+  mc wait [sek]     auf neue Ereignisse warten (Chat von Mitspielern, Schaden …), Standard 90 s
+  mc events         neue Ereignisse sofort abholen
+Umgebungsvariablen: CLAUDEBOT_PORT (Standard 25599), MC_WAIT = max. Wartezeit pro Befehl (Standard 60 s)
+"""
+import os
+import sys
+import urllib.error
+import urllib.request
+
+PORT = int(os.environ.get("CLAUDEBOT_PORT", "25599"))
+BASE = f"http://127.0.0.1:{PORT}"
+
+
+def call(path, body=None, timeout=120):
+    data = body.encode("utf-8") if body is not None else None
+    req = urllib.request.Request(BASE + path, data=data, method="POST" if data is not None else "GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read().decode("utf-8")
+    except urllib.error.URLError as e:
+        return (f"Keine Verbindung zu Minecraft ({BASE}): {e.reason}\n"
+                "Läuft Minecraft mit der ClaudeBot-Mod und ist eine Welt geladen?\n")
+    except TimeoutError:
+        return "Zeitüberschreitung – das Spiel antwortet nicht (pausiert?).\n"
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__)
+        print(call("/cmd", "help"), end="")
+        return
+    if args[0] == "wait":
+        sec = int(args[1]) if len(args) > 1 else 90
+        print(call(f"/events?wait={sec}", timeout=sec + 15), end="")
+        return
+    if args[0] == "events":
+        print(call("/events?wait=0"), end="")
+        return
+    wait = int(os.environ.get("MC_WAIT", "60"))
+    print(call(f"/cmd?wait={wait}", " ".join(args), timeout=wait + 30), end="")
+
+
+if __name__ == "__main__":
+    main()
